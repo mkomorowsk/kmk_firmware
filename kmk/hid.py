@@ -17,6 +17,9 @@ from kmk.scheduler import cancel_task, create_task
 from kmk.utils import Debug, clamp
 
 try:
+    import _bleio
+    import microcontroller
+
     from adafruit_ble import BLERadio
     from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
     from adafruit_ble.services.standard.hid import HIDService
@@ -326,8 +329,18 @@ class USBHID(AbstractHID):
 
 
 class BLEHID(AbstractHID):
-    def __init__(self, ble_name=None):
-        super().__init__()
+    # Number of NVM bytes reserved for multi-profile slot seeds.
+    # nvm[0] = active slot; nvm[1..n] = per-slot address-rotation seeds.
+    _NVM_SLOT_BASE = 1
+
+    def __init__(self, ble_name=None, **kwargs):
+        super().__init__(**kwargs)
+
+        # Multi-profile state.  BLEProfiles module overwrites _n_slots and
+        # calls _apply_slot_identity() during its during_bootup() hook.
+        self._n_slots = 1
+        self._active_slot = 0
+        self._ble_name_base = ble_name  # user-supplied base name (may be None)
 
         self.ble = BLERadio()
         self.ble.name = ble_name if ble_name else getmount('/').label
@@ -364,8 +377,6 @@ class BLEHID(AbstractHID):
             self.start_advertising()
 
     def clear_bonds(self):
-        import _bleio
-
         _bleio.adapter.erase_bonding()
 
     def start_advertising(self):
@@ -377,3 +388,132 @@ class BLEHID(AbstractHID):
 
     def stop_advertising(self):
         self.ble.stop_advertising()
+
+    # ------------------------------------------------------------------
+    # Multi-profile helpers
+    # ------------------------------------------------------------------
+
+    def _slot_name(self, slot):
+        '''Return the BLE advertised name for the given slot.'''
+        base = self._ble_name_base if self._ble_name_base else getmount('/').label
+        if self._n_slots > 1:
+            return f'{base} {slot + 1}'
+        return base
+
+    def _slot_address(self, slot):
+        '''
+        Derive a stable random-static BLE address for *slot* from the chip UID
+        and a per-slot rotation seed stored in NVM.
+
+        Address byte layout (6 bytes, little-endian on the wire):
+            addr[5] bits 7-6 = 0b11  → random static address type
+            addr[0] bits 5-3 = slot index  (supports up to 8 slots)
+            addr[0] bits 2-0 = rotation seed low 3 bits  (8 rotations per slot)
+            remaining bits   = chip UID bytes (stable per device)
+        '''
+        uid = microcontroller.cpu.uid  # bytes, length ≥ 6 on nRF52840
+
+        addr = bytearray(uid[:6])
+
+        # Read the per-slot seed; default 0 on first use (0xFF → clamp to 0)
+        try:
+            seed = microcontroller.nvm[self._NVM_SLOT_BASE + slot]
+            if seed == 0xFF:
+                seed = 0
+        except Exception:
+            seed = 0
+
+        # Encode slot index and seed into the least-significant byte
+        addr[0] = (addr[0] & 0xC0) | ((slot & 0x07) << 3) | (seed & 0x07)
+        # Force top two bits of MSB to 0b11 (random static address)
+        addr[5] = (addr[5] & 0x3F) | 0xC0
+
+        try:
+            return _bleio.Address(bytes(addr), _bleio.Address.RANDOM_STATIC)
+        except Exception:
+            return None
+
+    def _apply_slot_identity(self, slot):
+        '''
+        Set the BLE adapter address and advertisement name for *slot*.
+
+        Called by BLEProfiles.during_bootup() before advertising starts,
+        and by switch_to_slot() when changing profiles.
+        '''
+        self._active_slot = slot
+
+        # Change adapter address only when running in multi-slot mode
+        if self._n_slots > 1:
+            addr = self._slot_address(slot)
+            if addr is not None:
+                try:
+                    self.ble._adapter.address = addr
+                except Exception as e:
+                    if debug.enabled:
+                        debug('BLE address change failed:', e)
+
+        self.ble.name = self._slot_name(slot)
+
+        if debug.enabled:
+            debug('BLE slot', slot, 'name', self.ble.name)
+
+    def switch_to_slot(self, slot):
+        '''
+        Disconnect from the current host, change identity, and re-advertise
+        so the keyboard can be paired with / reconnect to the *slot* host.
+        '''
+        if slot < 0 or slot >= self._n_slots:
+            return
+
+        if debug.enabled:
+            debug('BLE switch_to_slot', slot)
+
+        self.ble.stop_advertising()
+
+        # Disconnect all active connections
+        for conn in self.ble.connections:
+            try:
+                conn.disconnect()
+            except Exception:
+                pass
+
+        # Persist the new active slot
+        try:
+            microcontroller.nvm[0] = slot
+        except Exception:
+            pass
+
+        # Reset HID report state so setup() re-probes on new connection
+        self.report_map.clear()
+        self.device_map.clear()
+        if self._setup_task is None:
+            self._setup_task = create_task(self.setup, period_ms=100)
+
+        self._apply_slot_identity(slot)
+        self.start_advertising()
+
+    def clear_profile(self, slot):
+        '''
+        Rotate the advertising address for *slot*, making any existing host
+        bond stale.  The host will treat the keyboard as a new device and
+        prompt to re-pair.
+
+        CircuitPython does not support erasing individual bond records
+        (_bleio.adapter.erase_bonding() wipes ALL bonds), so rotating the
+        address is the practical workaround.
+        '''
+        if slot < 0 or slot >= self._n_slots:
+            return
+
+        # Increment the per-slot seed (wraps at 8; avoid 0xFF sentinel)
+        try:
+            current = microcontroller.nvm[self._NVM_SLOT_BASE + slot]
+            if current == 0xFF:
+                current = 0
+            new_seed = (current + 1) & 0x07
+            microcontroller.nvm[self._NVM_SLOT_BASE + slot] = new_seed
+        except Exception:
+            pass
+
+        # Re-advertise under the rotated address (disconnects current host)
+        self.switch_to_slot(slot)
