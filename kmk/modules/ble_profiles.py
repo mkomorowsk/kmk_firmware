@@ -134,6 +134,7 @@ class BLEProfiles(Module):
         try:
             import board
             import digitalio
+
             import time
 
             led = digitalio.DigitalInOut(board.LED)

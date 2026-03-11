@@ -17,7 +17,6 @@ from kmk.scheduler import cancel_task, create_task
 from kmk.utils import Debug, clamp
 
 try:
-    import _bleio
     import microcontroller
 
     from adafruit_ble import BLERadio
@@ -377,6 +376,8 @@ class BLEHID(AbstractHID):
             self.start_advertising()
 
     def clear_bonds(self):
+        import _bleio
+
         _bleio.adapter.erase_bonding()
 
     def start_advertising(self):
@@ -429,6 +430,8 @@ class BLEHID(AbstractHID):
         addr[5] = (addr[5] & 0x3F) | 0xC0
 
         try:
+            import _bleio
+
             return _bleio.Address(bytes(addr), _bleio.Address.RANDOM_STATIC)
         except Exception:
             return None
