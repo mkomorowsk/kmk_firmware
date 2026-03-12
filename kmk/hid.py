@@ -16,6 +16,7 @@ from kmk.keys import (
 from kmk.scheduler import cancel_task, create_task
 from kmk.utils import Debug, clamp
 
+_BLE_AVAILABLE = False
 try:
     import microcontroller
 
@@ -25,6 +26,7 @@ try:
     from storage import getmount
 
     _BLE_APPEARANCE_HID_KEYBOARD = const(961)
+    _BLE_AVAILABLE = True
 except ImportError:
     # BLE not supported on this platform
     pass
@@ -333,6 +335,8 @@ class BLEHID(AbstractHID):
     _NVM_SLOT_BASE = 1
 
     def __init__(self, ble_name=None, **kwargs):
+        if not _BLE_AVAILABLE:
+            raise ImportError('adafruit_ble not available; install full library in /lib')
         super().__init__(**kwargs)
 
         # Multi-profile state.  BLEProfiles module overwrites _n_slots and
