@@ -27,9 +27,9 @@ try:
 
     _BLE_APPEARANCE_HID_KEYBOARD = const(961)
     _BLE_AVAILABLE = True
-except ImportError as _ble_import_err:
+except Exception as _ble_import_err:
     # BLE not supported on this platform
-    print('hid.py: BLE import failed:', _ble_import_err)
+    print('hid.py: BLE import failed:', type(_ble_import_err).__name__, _ble_import_err)
 
 
 debug = Debug(__name__)
@@ -336,6 +336,7 @@ class BLEHID(AbstractHID):
 
     def __init__(self, ble_name=None, **kwargs):
         if not _BLE_AVAILABLE:
+            print('BLEHID: _BLE_AVAILABLE=False, import failed earlier')
             raise ImportError('adafruit_ble not available')
         super().__init__(**kwargs)
 
