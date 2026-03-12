@@ -93,9 +93,13 @@ class Split(Module):
         if self.split_type == SplitType.BLE:
             if keyboard.hid_type == HIDModes.BLE:
                 self._ble = keyboard._hid_helper.ble
-            else:
+            elif hasattr(self, 'BLERadio'):
                 self._ble = self.BLERadio()
                 self._ble.name = name
+            else:
+                if debug.enabled:
+                    debug('during_bootup: BLE libs not available, check adafruit_ble install')
+                return
         else:
             # Try to guess data pins if not supplied
             if not self.data_pin:
