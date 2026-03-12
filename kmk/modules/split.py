@@ -78,9 +78,9 @@ class Split(Module):
                 self.BLERadio = BLERadio
                 self.ProvideServicesAdvertisement = ProvideServicesAdvertisement
                 self.UARTService = UARTService
-            except ImportError:
+            except Exception as e:
                 if debug.enabled:
-                    debug('BLE Import error')
+                    debug('BLE Import error:', e)
                 return  # BLE isn't supported on this platform
 
         if self._use_pio:
