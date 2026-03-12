@@ -60,6 +60,14 @@ class Split(Module):
         self.uart_header = bytearray([0xB2])  # Any non-zero byte should work
         debug('Split module initializing...')
         if self.split_type == SplitType.BLE:
+            self._ble = None
+            self._ble_last_scan = ticks_ms() - 5000
+            self._connection_count = 0
+            self._split_connected = False
+            self._uart_connection = None
+            self._advertisment = None  # Seems to not be used anywhere
+            self._advertising = False
+            self._psave_enable = False
             try:
                 from adafruit_ble import BLERadio
                 from adafruit_ble.advertising.standard import (
@@ -74,13 +82,6 @@ class Split(Module):
                 if debug.enabled:
                     debug('BLE Import error')
                 return  # BLE isn't supported on this platform
-            self._ble_last_scan = ticks_ms() - 5000
-            self._connection_count = 0
-            self._split_connected = False
-            self._uart_connection = None
-            self._advertisment = None  # Seems to not be used anywhere
-            self._advertising = False
-            self._psave_enable = False
 
         if self._use_pio:
             from kmk.transports.pio_uart import PIO_UART
@@ -201,6 +202,8 @@ class Split(Module):
 
     def before_matrix_scan(self, keyboard):
         if self.split_type == SplitType.BLE:
+            if self._ble is None:
+                return
             self._check_all_connections(keyboard)
             self._receive_ble(keyboard)
         elif self.split_type == SplitType.UART:
