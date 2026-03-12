@@ -99,7 +99,7 @@ class Split(Module):
                 self._ble.name = name
             else:
                 if debug.enabled:
-                    debug('during_bootup: BLE libs not available, check adafruit_ble install')
+                    debug('during_bootup: BLE libs unavailable')
                 return
         else:
             # Try to guess data pins if not supplied
