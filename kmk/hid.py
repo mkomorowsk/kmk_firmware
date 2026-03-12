@@ -336,7 +336,7 @@ class BLEHID(AbstractHID):
 
     def __init__(self, ble_name=None, **kwargs):
         if not _BLE_AVAILABLE:
-            raise ImportError('adafruit_ble not available; install full library in /lib')
+            raise ImportError('adafruit_ble not available')
         super().__init__(**kwargs)
 
         # Multi-profile state.  BLEProfiles module overwrites _n_slots and
