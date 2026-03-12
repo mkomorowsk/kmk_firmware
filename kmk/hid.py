@@ -27,9 +27,9 @@ try:
 
     _BLE_APPEARANCE_HID_KEYBOARD = const(961)
     _BLE_AVAILABLE = True
-except ImportError:
+except ImportError as _ble_import_err:
     # BLE not supported on this platform
-    pass
+    print('hid.py: BLE import failed:', _ble_import_err)
 
 
 debug = Debug(__name__)
